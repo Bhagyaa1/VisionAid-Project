@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>VisionAid</title>
+</head>
+<body>
+    <div class="container">
+        <h1>VisionAid</h1>
+    
+        <div class="theme-toggle">
+            <label class="switch">
+                <input type="checkbox" id="theme-switch">
+                <span class="slider round"></span>
+            </label>
+            <!-- <span class="toggle-label">Dark Mode</span> -->
+        </div>
+    
+        <div class="settings-btn" id="settingsBtn">
+            <i class="fas fa-cog"></i>
+        </div>
+    
+        <nav class="navbar">
+            <a href="#" class="nav-item">
+                <i class="fas fa-eye nav-icon"></i> Object Recognition
+            </a>
+            <a href="#" class="nav-item">
+                <i class="fas fa-compass nav-icon"></i> Navigation
+            </a>
+            <a href="#" class="nav-item">
+                <i class="fas fa-microphone nav-icon"></i> Voice Alert
+            </a>
+        </nav>
+    
+        <!-- Settings Page -->
+        <div class="settings-page" id="settingsPage">
+            <h2 class="settings-header toggle-label">User Settings</h2>
+            <form id="settingsForm">
+                <input type="text" id="name" placeholder="Name">
+                <input type="number" id="age" placeholder="Age">
+                <input type="text" id="address" placeholder="Address">
+                <!-- <input type="text" id="work" placeholder="Work"> -->
+                <input type="tel" id="phone" placeholder="Phone No.">
+                <!-- <input type="email" id="email" placeholder="Email"> -->
+                <button type="submit">Save Settings</button>
+            </form>
+        </div>
+
+        <br>
+    
+        <label for="language-select">Select Language:</label>
+        <select id="language-select" onchange="saveLanguage(this.value)">
+            <option value="en">English</option>
+            <option value="hi">हिन्दी</option>
+            <option value="es">Español</option>
+            <option value="ta">தமிழ்</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="zh-cn">中文</option>
+            <option value="ja">日本語</option>
+            <option value="ru">Русский</option>
+            <option value="pt">Português</option>
+            <option value="it">Italiano</option>
+        </select>
+        
+    
+        <div class="button-container">
+            <button id="start-btn" class="start-btn" onclick="startDetection()">Start</button>
+            <button id="stop-btn" class="stop-btn" onclick="stopDetection()" disabled>Stop</button>
+        </div>
+    
+        <div class="footer">
+            <p>&copy; 2024 VisionAid | Voice-Enabled Accessibility</p>
+        </div>
+    </div>
+    
+    
+
+    <script src="static/script.js"></script>
+
+
+<script>
+let isListening = true; // Flag to track if voice commands are being processed
+let lastCommandTime = 0; // To debounce commands
+
+// Function to calculate Levenshtein Distance for fuzzy matching
+function levenshtein(a, b) {
+    const matrix = Array.from({ length: a.length + 1 }, () => []);
+    for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+    for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            if (a[i - 1] === b[j - 1]) matrix[i][j] = matrix[i - 1][j - 1];
+            else matrix[i][j] = Math.min(
+                matrix[i - 1][j - 1] + 1,
+                matrix[i][j - 1] + 1,
+                matrix[i - 1][j] + 1
+            );
+        }
+    }
+    return matrix[a.length][b.length];
+}
+
+function isSimilar(word, command) {
+    const threshold = 2;
+    return levenshtein(word, command) <= threshold;
+}
+
+function saveLanguage(lang) {
+    localStorage.setItem('selectedLanguage', lang);
+    fetch(`/set_language/${lang}`)
+        .then(response => {
+            if (response.ok) {
+                console.log(`Language set to: ${lang}`);
+            } else {
+                console.error('Failed to set language');
+            }
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+function loadLanguage() {
+    const selectedLang = localStorage.getItem('selectedLanguage') || 'en'; // Default to English if not set
+    document.getElementById('language-select').value = selectedLang;
+    console.log(`Loaded language: ${selectedLang}`); // Debug log for loaded language
+    return selectedLang;
+}
+
+function startDetection() {
+    document.getElementById('start-btn').disabled = true;
+    document.getElementById('stop-btn').disabled = false;
+    console.log("Action Started...");
+    fetch('/start_detection');
+}
+
+function stopDetection() {
+    document.getElementById('stop-btn').disabled = true;
+    document.getElementById('start-btn').disabled = false;
+    console.log("Action Stopped...");
+    fetch('/stop_detection');
+}
+
+// Voice recognition using Web Speech API
+function initVoiceCommands() {
+    let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    let selectedLang = loadLanguage(); // Load saved language or default to 'en'
+    recognition.lang = selectedLang;
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+        const currentTime = Date.now();
+
+        // Prevent commands from being processed too quickly
+        if (currentTime - lastCommandTime < 1000) {
+            return; // Ignore this command
+        }
+        lastCommandTime = currentTime;
+
+        console.log("Voice Command: " + transcript);
+
+        const startCommands = [
+            'start', 'sttaart', 'starrt', 'स्टार्ट'
+        ];
+
+        const stopCommands = [
+            'stop', 'stahp', 'स्टॉप', 'स्टॉप प्लीज', 'स्टॉप स्टॉप'
+        ];
+
+        // Language words for detection
+        const hindiWords = ['हिन्दी', 'हिंदी', 'hindi', 'hello'];
+        const englishWords = ['english', 'इंग्लिश', 'englesh', 'इन इंग्लिश'];
+        const spanishWords = ['español', 'spanish', 'स्पेनिश'];
+        const tamilWords = ['தமிழ்', 'tamil', 'tamizh', 'तमिल'];
+        const frenchWords = ['français', 'french', 'फ्रेंच', 'फ्रेंच'];
+        const germanWords = ['deutsch', 'german', 'जर्मन'];
+        const chineseWords = ['中文', 'chinese', 'चीनी'];
+        const japaneseWords = ['日本語', 'japanese', 'जापानी'];
+        const russianWords = ['русский', 'russian', 'रूसी'];
+        const portugueseWords = ['português', 'portuguese', 'पुर्तगाली'];
+        const italianWords = ['italiano', 'italian', 'इतालवी'];
+
+        // Check the spoken language and change accordingly
+        if (hindiWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'hi';  // Hindi
+        } else if (englishWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'en';  // English
+        } else if (spanishWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'es';  // Spanish
+        } else if (tamilWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'ta';  // Tamil
+        } else if (frenchWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'fr';  // French
+        } else if (germanWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'de';  // German
+        } else if (chineseWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'zh-cn';  // Chinese (Simplified)
+        } else if (japaneseWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'ja';  // Japanese
+        } else if (russianWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'ru';  // Russian
+        } else if (portugueseWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'pt';  // Portuguese
+        } else if (italianWords.some(cmd => isSimilar(transcript, cmd))) {
+            selectedLang = 'it';  // Italian
+        }
+
+        // If language has changed, update recognition and dropdown
+        if (selectedLang !== recognition.lang) {
+            recognition.lang = selectedLang;
+            saveLanguage(selectedLang);
+            document.getElementById('language-select').value = selectedLang; // Change dropdown to the new language
+            console.log("Language changed to " + selectedLang);
+        }
+
+        // Check for "start" command using fuzzy matching
+        if (startCommands.some(cmd => isSimilar(transcript, cmd))) {
+            startDetection();
+        }
+        // Check for "stop" command using fuzzy matching
+        else if (stopCommands.some(cmd => isSimilar(transcript, cmd))) {
+            stopDetection();
+        }
+
+        isListening = true;
+    };
+
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error: ", event.error);
+    };
+
+    recognition.onend = () => {
+        recognition.start(); // Restart recognition when it stops
+    };
+
+    recognition.start();
+}
+
+// Load selected language and initialize voice commands on page load
+window.onload = () => {
+    loadLanguage();
+    initVoiceCommands();  // Start voice recognition when the page loads
+};
+
+// Stop detection when the page is reloaded or navigated away
+window.addEventListener('beforeunload', (event) => {
+    stopDetection(); // Call the stopDetection function
+});
+
+document.getElementById('settingsBtn').addEventListener('click', function() {
+    const settingsPage = document.getElementById('settingsPage');
+    settingsPage.classList.toggle('active');
+    // Toggle the display style directly for smooth expansion
+    settingsPage.style.display = settingsPage.style.display === 'none' || settingsPage.style.display === '' ? 'block' : 'none';
+});
+</script>
+
+</body>
+</html>
